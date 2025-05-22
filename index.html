@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Topic Search</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header>Topic Search</header>
+    <div class="container">
+        <div class="card">
+            <h2>Search for a Topic</h2>
+            <form id="searchForm">
+                <input type="text" id="searchInput" placeholder="Enter a topic..." required />
+                <label for="retmaxInput" style="margin-left:12px; font-size:0.95em; color:#555;">Results:</label>
+                <input type="number" id="retmaxInput" value="5" min="1" max="100" style="width:60px; margin-left:4px;" />
+                <label for="openaiKeyInput" style="margin-left:12px; font-size:0.95em; color:#555;">OpenAI API Key:</label>
+                <input type="password" id="openaiKeyInput" placeholder="sk-..." style="width:180px; margin-left:4px;" autocomplete="off" />
+                <button type="submit" class="button">Search</button>
+            </form>
+            <div id="openaiSummary" style="margin:18px 0 18px 0; padding:16px; background:#e3f2fd; border-radius:6px; color:#1a237e; font-size:1.08em; display:none;"></div>
+            <div id="results"></div>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
