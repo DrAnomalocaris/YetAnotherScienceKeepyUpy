@@ -12,12 +12,77 @@ window.addEventListener('DOMContentLoaded', function() {
     }
 });
 
+// Settings panel logic and persistence
+const defaultPrompt = "Summarize the following recent PubMed papers on the topic '{topic}'. Use markdown for formatting and include references to the papers by their URLs.";
+
+function getSettings() {
+    return {
+        openaiKey: localStorage.getItem('openaiApiKey') || '',
+        retmax: localStorage.getItem('retmax') || '5',
+        prompt: localStorage.getItem('openaiPrompt') || defaultPrompt
+    };
+}
+function setSettings({openaiKey, retmax, prompt}) {
+    if (openaiKey !== undefined) localStorage.setItem('openaiApiKey', openaiKey);
+    if (retmax !== undefined) localStorage.setItem('retmax', retmax);
+    if (prompt !== undefined) localStorage.setItem('openaiPrompt', prompt);
+}
+function resetSettings() {
+    localStorage.removeItem('openaiApiKey');
+    localStorage.removeItem('retmax');
+    localStorage.removeItem('openaiPrompt');
+}
+
+window.addEventListener('DOMContentLoaded', function() {
+    // Hamburger menu logic
+    const settingsBtn = document.getElementById('settingsBtn');
+    const settingsPanel = document.getElementById('settingsPanel');
+    const closeSettingsBtn = document.getElementById('closeSettingsBtn');
+    const resetSettingsBtn = document.getElementById('resetSettingsBtn');
+    const settingsOpenaiKey = document.getElementById('settingsOpenaiKey');
+    const settingsRetmax = document.getElementById('settingsRetmax');
+    const settingsPrompt = document.getElementById('settingsPrompt');
+
+    function loadSettingsToPanel() {
+        const s = getSettings();
+        settingsOpenaiKey.value = s.openaiKey;
+        settingsRetmax.value = s.retmax;
+        settingsPrompt.value = s.prompt;
+    }
+    settingsBtn.onclick = function() {
+        loadSettingsToPanel();
+        settingsPanel.style.display = 'block';
+    };
+    closeSettingsBtn.onclick = function() {
+        settingsPanel.style.display = 'none';
+    };
+    resetSettingsBtn.onclick = function() {
+        resetSettings();
+        loadSettingsToPanel();
+    };
+    settingsOpenaiKey.oninput = function() {
+        setSettings({openaiKey: settingsOpenaiKey.value});
+    };
+    settingsRetmax.oninput = function() {
+        setSettings({retmax: settingsRetmax.value});
+    };
+    settingsPrompt.oninput = function() {
+        setSettings({prompt: settingsPrompt.value});
+    };
+
+    // Set retmax and openaiKey in form on load
+    const s = getSettings();
+    document.getElementById('searchInput').focus();
+});
+
 document.getElementById('searchForm').addEventListener('submit', function(e) {
     e.preventDefault();
     const query = document.getElementById('searchInput').value.trim();
-    const retmax = parseInt(document.getElementById('retmaxInput').value, 10) || 10;
     const resultsDiv = document.getElementById('results');
-    const openaiKey = document.getElementById('openaiKeyInput').value.trim();
+    // Get settings from localStorage
+    const openaiKey = localStorage.getItem('openaiApiKey') || '';
+    const retmax = parseInt(localStorage.getItem('retmax') || '5', 10);
+    const openaiPrompt = localStorage.getItem('openaiPrompt') || defaultPrompt;
     if (openaiKey && openaiKey.startsWith('sk-')) {
         localStorage.setItem('openaiApiKey', openaiKey);
     }
@@ -116,7 +181,7 @@ document.getElementById('searchForm').addEventListener('submit', function(e) {
                                 const openaiSummaryDiv = document.getElementById('openaiSummary');
                                 openaiSummaryDiv.style.display = 'block';
                                 openaiSummaryDiv.innerHTML = '<span class="buffering-spinner"></span> Summarizing with OpenAI...';
-                                let prompt = `Summarize the following recent PubMed papers on the topic '${query}'. Use markdown for formatting and include references to the papers by their URLs.\n\n` + printout;
+                                let prompt = (openaiPrompt || defaultPrompt).replace('{topic}', query) + '\n\n' + printout;
                                 fetch('https://api.openai.com/v1/chat/completions', {
                                     method: 'POST',
                                     headers: {
