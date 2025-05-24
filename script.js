@@ -13,7 +13,7 @@ window.addEventListener('DOMContentLoaded', function() {
 });
 
 // Settings panel logic and persistence
-const defaultPrompt = `Summarize the following recent PubMed papers on the topic '{topic}'. Use markdown for formatting and include references to the papers by their URLs.\n\nMake sure you include inline references and markdown formatting.\n\nWrite a concise essay that includes recent findings, context, and consequences to the field. Do not just make a list of papers and bullet points; instead, synthesize the information into a unified summary. It is OK to split chapters if some topics are too unrelated.\n\nRemember to include inline citations using this format: "specific statement [authors](url)."\n\nAt the beginning, include a handful of bolded bullet points (with linked references) about the most important info.`;
+const defaultPrompt = `Summarize the following recent PubMed papers on the topic '{topic}'. Use markdown for formatting and include references to the papers by their URLs.\n\nMake sure you include inline references and markdown formatting.\n\nWrite a concise essay that includes recent findings, context, and consequences to the field. Do not just make a list of papers and bullet points; instead, synthesize the information into a unified summary. It is OK to split chapters if some topics are too unrelated.\n\nRemember to include inline citations using this format: "specific statement [authors](url)."\n\nAt the beginning, include a handful of bolded bullet points (with linked references) about the most important info.\n\nAlso include any interesting novel methods if they are interesting`;
 
 function getSettings() {
     return {
@@ -78,6 +78,25 @@ window.addEventListener('DOMContentLoaded', function() {
     document.getElementById('searchInput').focus();
 });
 
+// Simple cache for up to 50 papers (id -> {title, authors, url, abstract})
+const paperCache = JSON.parse(localStorage.getItem('paperCache') || '{}');
+function updatePaperCache(papers) {
+    // Add new papers, keep only the last 50 unique
+    for (const p of papers) {
+        paperCache[p.id] = p;
+    }
+    const keys = Object.keys(paperCache);
+    if (keys.length > 50) {
+        // Remove oldest
+        const toRemove = keys.slice(0, keys.length - 50);
+        for (const k of toRemove) delete paperCache[k];
+    }
+    localStorage.setItem('paperCache', JSON.stringify(paperCache));
+}
+function getCachedPaper(id) {
+    return paperCache[id];
+}
+
 document.getElementById('searchForm').addEventListener('submit', function(e) {
     e.preventDefault();
     const query = document.getElementById('searchInput').value.trim();
@@ -95,9 +114,6 @@ document.getElementById('searchForm').addEventListener('submit', function(e) {
     }
     resultsDiv.textContent = 'Searching for "' + query + '"...';
     document.getElementById('openaiSummary').style.display = 'none';
-    // Remove previous printout if any
-    let printoutDiv = document.getElementById('openaiPrintout');
-    if (printoutDiv) printoutDiv.remove();
 
     // Fetch recent papers from NCBI PubMed
     fetch(`https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${encodeURIComponent(query)}&retmax=${retmax}&sort=pub+date&retmode=json`)
@@ -115,8 +131,6 @@ document.getElementById('searchForm').addEventListener('submit', function(e) {
                     const papers = summaryData.result;
                     // Store abstracts in memory
                     const abstracts = {};
-                    // Printout for user
-                    let printout = '';
                     // Progress bar setup
                     let progressBar = document.getElementById('abstractProgressBar');
                     if (!progressBar) {
@@ -129,18 +143,22 @@ document.getElementById('searchForm').addEventListener('submit', function(e) {
                     }
                     const progressFill = document.getElementById('abstractProgressFill');
                     const progressText = document.getElementById('abstractProgressText');
-                    // Fetch abstracts sequentially with delay
+                    // Fetch abstracts sequentially with delay, using cache if available
                     const ids = data.esearchresult.idlist;
                     let fetchedPapers = [];
                     function fetchAbstractSequentially(i) {
                         if (i >= ids.length) {
+                            // Sort papers by publication date (most recent first)
+                            fetchedPapers.sort((a, b) => {
+                                // Compare ISO date strings or fallback to empty string
+                                return (b.pubdate || '').localeCompare(a.pubdate || '');
+                            });
                             // All done
                             progressBar.style.display = 'block';
                             progressFill.style.width = '100%';
                             progressText.textContent = 'Sending to OpenAI for summarization...';
-                            // Render results and printout
+                            // Render results
                             let html = `<strong>Recent PubMed Papers for \"${query}\":</strong><ul style='list-style-type:none;padding-left:0;'>`;
-                            let printout = '';
                             fetchedPapers.forEach((paper, idx) => {
                                 html += `<li style='margin-bottom:12px;'>
                                     <a href='#' class='paper-title' data-id='${paper.id}' style='font-weight:bold;text-decoration:underline;color:#1976d2;'>${paper.title}</a>
@@ -148,35 +166,34 @@ document.getElementById('searchForm').addEventListener('submit', function(e) {
                                     <div class='abstract' id='abstract-${paper.id}' style='display:none; margin-top:6px; font-size:0.98em; color:#444;'></div>
                                     <a href='${paper.url}' target='_blank' style='margin-left:8px;font-size:0.95em;'>[PubMed]</a>
                                 </li>`;
-                                printout += `# ${paper.title}\n`;
-                                printout += `## ${paper.authors || 'No authors listed'}\n`;
-                                printout += `### ${paper.url}\n\n`;
-                                printout += `${paper.abstract || 'No abstract available.'}\n---\n`;
                             });
                             html += '</ul>';
                             resultsDiv.innerHTML = html;
-                            // Printout below results
-                            let printoutDiv = document.getElementById('openaiPrintout');
-                            if (!printoutDiv) {
-                                printoutDiv = document.createElement('div');
-                                printoutDiv.id = 'openaiPrintout';
-                                printoutDiv.style = 'margin-top:32px; background:#f8f8f8; border-radius:6px; padding:18px; font-family:monospace; font-size:1em; color:#222; white-space:pre-wrap;';
-                                document.querySelector('.card').appendChild(printoutDiv);
-                            }
-                            printoutDiv.textContent = printout;
-                            // Add click listeners for titles to show/hide abstract from memory
+                            // Add click listeners for titles to show/hide abstract from memory with animation
                             document.querySelectorAll('.paper-title').forEach(function(titleLink) {
                                 titleLink.addEventListener('click', function(e) {
                                     e.preventDefault();
                                     const paperId = this.getAttribute('data-id');
                                     const abstractDiv = document.getElementById('abstract-' + paperId);
-                                    if (abstractDiv.style.display === 'block') {
-                                        abstractDiv.style.display = 'none';
-                                        abstractDiv.textContent = '';
+                                    if (abstractDiv.style.maxHeight && abstractDiv.style.maxHeight !== '0px') {
+                                        // Animate close
+                                        abstractDiv.style.maxHeight = '0px';
+                                        abstractDiv.style.opacity = '0';
+                                        setTimeout(() => {
+                                            abstractDiv.style.display = 'none';
+                                            abstractDiv.textContent = '';
+                                        }, 300);
                                         return;
                                     }
                                     abstractDiv.textContent = abstracts[paperId] || 'No abstract available.';
                                     abstractDiv.style.display = 'block';
+                                    abstractDiv.style.opacity = '0';
+                                    abstractDiv.style.maxHeight = '0px';
+                                    setTimeout(() => {
+                                        abstractDiv.style.transition = 'max-height 0.3s cubic-bezier(.4,0,.2,1), opacity 0.25s';
+                                        abstractDiv.style.maxHeight = '400px';
+                                        abstractDiv.style.opacity = '1';
+                                    }, 10);
                                 });
                             });
                             // Send to OpenAI for summarization, ask for markdown formatting and references
@@ -191,7 +208,7 @@ document.getElementById('searchForm').addEventListener('submit', function(e) {
                                 const openaiSummaryDiv = document.getElementById('openaiSummary');
                                 openaiSummaryDiv.style.display = 'block';
                                 openaiSummaryDiv.innerHTML = '<span class="buffering-spinner"></span> Summarizing with OpenAI...';
-                                let prompt = (openaiPrompt || defaultPrompt).replace('{topic}', query) + '\n\n' + printout;
+                                let prompt = (openaiPrompt || defaultPrompt).replace('{topic}', query);
                                 console.log('[OpenAI] About to send prompt:', prompt);
                                 fetch('https://api.openai.com/v1/chat/completions', {
                                     method: 'POST',
@@ -229,6 +246,7 @@ document.getElementById('searchForm').addEventListener('submit', function(e) {
                                 console.warn('[OpenAI] No OpenAI API key provided. Skipping OpenAI summary.');
                                 document.getElementById('openaiSummary').style.display = 'none';
                             }
+                            updatePaperCache(fetchedPapers);
                             return;
                         }
                         // Progress update
@@ -238,6 +256,13 @@ document.getElementById('searchForm').addEventListener('submit', function(e) {
                         progressBar.style.display = 'block';
                         // Use CORS proxy for efetch
                         const corsProxy = 'https://corsproxy.io/?';
+                        const cached = getCachedPaper(ids[i]);
+                        if (cached) {
+                            abstracts[ids[i]] = cached.abstract;
+                            fetchedPapers.push(cached);
+                            setTimeout(() => fetchAbstractSequentially(i + 1), 10);
+                            return;
+                        }
                         fetch(`${corsProxy}https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=${ids[i]}&retmode=xml`)
                             .then(resp => resp.text())
                             .then(xmlText => {
@@ -252,23 +277,40 @@ document.getElementById('searchForm').addEventListener('submit', function(e) {
                                     if (last || fore) authors.push(`${fore} ${last}`.trim());
                                 });
                                 const abstract = abstractNode ? abstractNode.textContent : '';
-                                abstracts[ids[i]] = abstract;
-                                fetchedPapers.push({
+                                // Extract publication date from summary data if available
+                                let pubdate = '';
+                                if (papers[ids[i]]) {
+                                    pubdate = papers[ids[i]].sortpubdate || papers[ids[i]].epubdate || papers[ids[i]].pubdate || '';
+                                }
+                                if (!pubdate) {
+                                    // Try to extract from XML if not in summary
+                                    const dateNode = xmlDoc.querySelector('PubDate');
+                                    if (dateNode) pubdate = dateNode.textContent.trim();
+                                }
+                                const paperObj = {
                                     id: ids[i],
                                     title: papers[ids[i]].title,
                                     authors: authors.join(', '),
                                     url: `https://pubmed.ncbi.nlm.nih.gov/${ids[i]}/`,
-                                    abstract
-                                });
+                                    abstract,
+                                    pubdate
+                                };
+                                abstracts[ids[i]] = abstract;
+                                fetchedPapers.push(paperObj);
                             })
                             .catch(() => {
+                                let pubdate = '';
+                                if (papers[ids[i]]) {
+                                    pubdate = papers[ids[i]].sortpubdate || papers[ids[i]].epubdate || papers[ids[i]].pubdate || '';
+                                }
                                 abstracts[ids[i]] = '';
                                 fetchedPapers.push({
                                     id: ids[i],
                                     title: papers[ids[i]].title,
                                     authors: '',
                                     url: `https://pubmed.ncbi.nlm.nih.gov/${ids[i]}/`,
-                                    abstract: ''
+                                    abstract: '',
+                                    pubdate
                                 });
                             })
                             .finally(() => {
