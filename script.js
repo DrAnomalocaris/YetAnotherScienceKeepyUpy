@@ -13,7 +13,7 @@ window.addEventListener('DOMContentLoaded', function() {
 });
 
 // Settings panel logic and persistence
-const defaultPrompt = "Summarize the following recent PubMed papers on the topic '{topic}'. Use markdown for formatting and include references to the papers by their URLs.";
+const defaultPrompt = `Summarize the following recent PubMed papers on the topic '{topic}'. Use markdown for formatting and include references to the papers by their URLs.\n\nMake sure you include inline references and markdown formatting.\n\nWrite a concise essay that includes recent findings, context, and consequences to the field. Do not just make a list of papers and bullet points; instead, synthesize the information into a unified summary. It is OK to split chapters if some topics are too unrelated.\n\nRemember to include inline citations using this format: "specific statement [authors](url)."\n\nAt the beginning, include a handful of bolded bullet points (with linked references) about the most important info.`;
 
 function getSettings() {
     return {
@@ -34,7 +34,7 @@ function resetSettings() {
 }
 
 window.addEventListener('DOMContentLoaded', function() {
-    // Hamburger menu logic
+    // Settings panel logic for slide-down
     const settingsBtn = document.getElementById('settingsBtn');
     const settingsPanel = document.getElementById('settingsPanel');
     const closeSettingsBtn = document.getElementById('closeSettingsBtn');
@@ -49,12 +49,15 @@ window.addEventListener('DOMContentLoaded', function() {
         settingsRetmax.value = s.retmax;
         settingsPrompt.value = s.prompt;
     }
-    settingsBtn.onclick = function() {
+    settingsBtn.onclick = function(e) {
+        e.preventDefault();
         loadSettingsToPanel();
-        settingsPanel.style.display = 'block';
+        settingsPanel.classList.toggle('open');
+        settingsBtn.classList.toggle('open');
     };
     closeSettingsBtn.onclick = function() {
-        settingsPanel.style.display = 'none';
+        settingsPanel.classList.remove('open');
+        settingsBtn.classList.remove('open');
     };
     resetSettingsBtn.onclick = function() {
         resetSettings();
@@ -177,11 +180,19 @@ document.getElementById('searchForm').addEventListener('submit', function(e) {
                                 });
                             });
                             // Send to OpenAI for summarization, ask for markdown formatting and references
+                            if (!openaiKey || !openaiKey.startsWith('sk-')) {
+                                const openaiSummaryDiv = document.getElementById('openaiSummary');
+                                openaiSummaryDiv.style.display = 'block';
+                                openaiSummaryDiv.innerHTML = '<span style="color:#b71c1c; font-weight:bold;">No valid OpenAI API key provided. Please enter your key in the settings menu to enable summaries.</span>';
+                                progressBar.style.display = 'none';
+                                return;
+                            }
                             if (openaiKey && openaiKey.startsWith('sk-')) {
                                 const openaiSummaryDiv = document.getElementById('openaiSummary');
                                 openaiSummaryDiv.style.display = 'block';
                                 openaiSummaryDiv.innerHTML = '<span class="buffering-spinner"></span> Summarizing with OpenAI...';
                                 let prompt = (openaiPrompt || defaultPrompt).replace('{topic}', query) + '\n\n' + printout;
+                                console.log('[OpenAI] About to send prompt:', prompt);
                                 fetch('https://api.openai.com/v1/chat/completions', {
                                     method: 'POST',
                                     headers: {
@@ -195,21 +206,27 @@ document.getElementById('searchForm').addEventListener('submit', function(e) {
                                         temperature: 0.5
                                     })
                                 })
-                                .then(resp => resp.json())
+                                .then(resp => {
+                                    console.log('[OpenAI] Waiting for response...');
+                                    return resp.json();
+                                })
                                 .then(data => {
                                     progressBar.style.display = 'none';
+                                    console.log('[OpenAI] Response received:', data);
                                     if (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) {
                                         openaiSummaryDiv.innerHTML = marked.parse(data.choices[0].message.content);
                                     } else {
                                         openaiSummaryDiv.textContent = 'No summary returned from OpenAI.';
                                     }
                                 })
-                                .catch(() => {
+                                .catch((err) => {
                                     progressBar.style.display = 'none';
+                                    console.error('[OpenAI] Error fetching summary:', err);
                                     openaiSummaryDiv.textContent = 'Error fetching summary from OpenAI.';
                                 });
                             } else {
                                 progressBar.style.display = 'none';
+                                console.warn('[OpenAI] No OpenAI API key provided. Skipping OpenAI summary.');
                                 document.getElementById('openaiSummary').style.display = 'none';
                             }
                             return;
