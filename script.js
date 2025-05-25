@@ -13,7 +13,7 @@ window.addEventListener('DOMContentLoaded', function() {
 });
 
 // Settings panel logic and persistence
-const defaultPrompt = `Summarize the following recent PubMed papers on the topic '{topic}'. Use markdown for formatting and include references to the papers by their URLs.\n\nMake sure you include inline references and markdown formatting.\n\nWrite a concise essay that includes recent findings, context, and consequences to the field. Do not just make a list of papers and bullet points; instead, synthesize the information into a unified summary. It is OK to split chapters if some topics are too unrelated.\n\nRemember to include inline citations using this format: "specific statement [authors](url)."\n\nAt the beginning, include a handful of bolded bullet points (with linked references) about the most important info.\n\nAlso include any interesting novel methods if they are interesting`;
+const defaultPrompt = `Summarize the following recent PubMed papers on the topic '{topic}'. Use markdown for formatting and include references to the papers by their URLs.\n\nMake sure you include inline references and markdown formatting.\n\nWrite a concise essay that includes recent findings, context, and consequences to the field. Do not just make a list of papers and bullet points; instead, synthesize the information into a unified summary. It is OK to split chapters if some topics are too unrelated.\n\nRemember to include inline citations using this format: "specific statement [authors](url)."\n\nAt the beginning, include a handful of bolded bullet points (with linked references) about the most important info.\n\nAlso include any interesting novel methods if they are interesting\n\nmake sure to mention specific developments with inline link references.\n\nHave a bit of a personality flare as well, try and add alliterations, a pun or two, make it not too boring or dry.\n\nthis is for someone who should be an expert on the topic, so assume PhD level knowledge.`;
 
 function getSettings() {
     return {
@@ -231,7 +231,107 @@ document.getElementById('searchForm').addEventListener('submit', function(e) {
                                     progressBar.style.display = 'none';
                                     console.log('[OpenAI] Response received:', data);
                                     if (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) {
-                                        openaiSummaryDiv.innerHTML = marked.parse(data.choices[0].message.content);
+                                        openaiSummaryDiv.innerHTML = '';
+                                        // Chat history container
+                                        let chatDiv = document.getElementById('openaiChatHistory');
+                                        if (!chatDiv) {
+                                            chatDiv = document.createElement('div');
+                                            chatDiv.id = 'openaiChatHistory';
+                                            chatDiv.style = 'margin-bottom:24px;';
+                                            openaiSummaryDiv.appendChild(chatDiv);
+                                        } else {
+                                            chatDiv.innerHTML = '';
+                                        }
+                                        // Add initial assistant message
+                                        const assistantMsg = document.createElement('div');
+                                        assistantMsg.innerHTML = marked.parse(data.choices[0].message.content);
+                                        assistantMsg.style = 'margin-bottom:16px; background:#e3f2fd; color:#1a237e; border-radius:6px; padding:12px;';
+                                        chatDiv.appendChild(assistantMsg);
+                                        // Add user question box below chat
+                                        if (!document.getElementById('userQuestionBox')) {
+                                            const userBox = document.createElement('div');
+                                            userBox.id = 'userQuestionBox';
+                                            userBox.style = 'margin-top:0; display:flex; gap:8px; align-items:center;';
+                                            userBox.innerHTML = `
+                                                <input id='userQuestionInput' type='text' placeholder='Ask a follow-up question...' style='flex:1; padding:8px; border-radius:4px; border:1px solid #bbb; font-size:1em;'>
+                                                <button id='userQuestionSend' style='padding:8px 16px; border:none; background:#1976d2; color:white; border-radius:4px; font-weight:bold; cursor:pointer;'>Send</button>
+                                            `;
+                                            openaiSummaryDiv.appendChild(userBox);
+                                            const userInput = document.getElementById('userQuestionInput');
+                                            const userSend = document.getElementById('userQuestionSend');
+                                            let chatHistory = [
+                                                { role: 'assistant', content: data.choices[0].message.content }
+                                            ];
+                                            function sendUserMessage() {
+                                                const text = userInput.value.trim();
+                                                if (!text) return;
+                                                // Add user message to chat
+                                                const userMsg = document.createElement('div');
+                                                userMsg.textContent = text;
+                                                userMsg.style = 'margin-bottom:12px; color:#b71c1c; font-style:italic; background:#fbe9e7; padding:8px 12px; border-radius:4px; align-self:flex-end;';
+                                                chatDiv.appendChild(userMsg);
+                                                userInput.value = '';
+                                                userInput.disabled = true;
+                                                userSend.disabled = true;
+                                                // Add to chat history
+                                                chatHistory.push({ role: 'user', content: text });
+                                                // Show spinner for assistant reply
+                                                const spinner = document.createElement('div');
+                                                spinner.className = 'buffering-spinner';
+                                                spinner.style = 'margin:8px auto;';
+                                                chatDiv.appendChild(spinner);
+                                                // Call OpenAI for reply
+                                                fetch('https://api.openai.com/v1/chat/completions', {
+                                                    method: 'POST',
+                                                    headers: {
+                                                        'Content-Type': 'application/json',
+                                                        'Authorization': 'Bearer ' + openaiKey
+                                                    },
+                                                    body: JSON.stringify({
+                                                        model: 'gpt-3.5-turbo',
+                                                        messages: chatHistory,
+                                                        max_tokens: 800,
+                                                        temperature: 0.5
+                                                    })
+                                                })
+                                                .then(resp => resp.json())
+                                                .then(replyData => {
+                                                    spinner.remove();
+                                                    if (replyData.choices && replyData.choices[0] && replyData.choices[0].message && replyData.choices[0].message.content) {
+                                                        const assistantMsg = document.createElement('div');
+                                                        assistantMsg.innerHTML = marked.parse(replyData.choices[0].message.content);
+                                                        assistantMsg.style = 'margin-bottom:16px; background:#e3f2fd; color:#1a237e; border-radius:6px; padding:12px;';
+                                                        chatDiv.appendChild(assistantMsg);
+                                                        chatHistory.push({ role: 'assistant', content: replyData.choices[0].message.content });
+                                                    } else {
+                                                        const errMsg = document.createElement('div');
+                                                        errMsg.textContent = 'No reply from OpenAI.';
+                                                        errMsg.style = 'color:#b71c1c; margin-bottom:12px;';
+                                                        chatDiv.appendChild(errMsg);
+                                                    }
+                                                    userInput.disabled = false;
+                                                    userSend.disabled = false;
+                                                    userInput.focus();
+                                                })
+                                                .catch(() => {
+                                                    spinner.remove();
+                                                    const errMsg = document.createElement('div');
+                                                    errMsg.textContent = 'Error fetching reply from OpenAI.';
+                                                    errMsg.style = 'color:#b71c1c; margin-bottom:12px;';
+                                                    chatDiv.appendChild(errMsg);
+                                                    userInput.disabled = false;
+                                                    userSend.disabled = false;
+                                                    userInput.focus();
+                                                });
+                                            }
+                                            userSend.onclick = sendUserMessage;
+                                            userInput.addEventListener('keydown', function(e) {
+                                                if (e.key === 'Enter') {
+                                                    e.preventDefault();
+                                                    sendUserMessage();
+                                                }
+                                            });
+                                        }
                                     } else {
                                         openaiSummaryDiv.textContent = 'No summary returned from OpenAI.';
                                     }
